@@ -4,3 +4,5 @@ AWS_SECRET_KEY =
 
 [slack]
 WEBHOOK_URL = https://hooks.slack.com/services/XXXXXXXXXX/XXXXXXXXX/XXXXXXXXXXXXX
+CHANNEL = #channel
+USER = AWSBillingInfo
