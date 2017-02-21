@@ -5,105 +5,118 @@ import ConfigParser
 import boto3
 import slackweb
 
-inifile = ConfigParser.SafeConfigParser()
-inifile.read('/opt/script/.auth_info')
+iniFile = ConfigParser.SafeConfigParser()
+iniFile.read('/opt/script/.auth_info')
 
 # ==== AWS認証情報 ====
-REGION = "us-east-1"
-KEY_ID = inifile.get('aws', 'AWS_KEY_ID')
-SECRET_KEY = inifile.get('aws', 'AWS_SECRET_KEY')
-
-
-# ==== AWS認証処理 ====
-aws_session = boto3.Session(
-                      aws_access_key_id=KEY_ID,
-                      aws_secret_access_key=SECRET_KEY,
-                      region_name=REGION
-                  )
-cloudwatch_conn = aws_session.client('cloudwatch')
+region      = "us-east-1"
+keyID       = iniFile.get('aws', 'AWS_KEY_ID')
+secretKeyID = iniFile.get('aws', 'AWS_SECRET_KEY')
 
 
 # ==== Slack認証設定 ====
-SLACK_WEBHOOK=inifile.get('slack', 'WEBHOOK_URL')
-SLACK_CHANNEL=inifile.get('slack', 'CHANNEL')
-SLACK_USER=inifile.get('slack', 'USER')
+slackWebhook = iniFile.get('slack', 'WEBHOOK_URL')
+slackChannel = iniFile.get('slack', 'CHANNEL')
+slackUser    = iniFile.get('slack', 'USER')
+
+
+# ==== AWS認証処理 ====
+awsSession = boto3.Session(
+                      aws_access_key_id     = keyID,
+                      aws_secret_access_key = secretKeyID,
+                      region_name           = region
+                  )
+cloudwatchConn = awsSession.client('cloudwatch')
 
 
 # ==== 昨日/一昨日の日付を取得する ====
-last_date_data = datetime.date.today() -datetime.timedelta(1)
-last_date = last_date_data.strftime('%Y/%m/%d')
-bef_last_date = (datetime.date.today() -datetime.timedelta(2)).strftime('%Y/%m/%d')
+lastDay = datetime.date.today() -datetime.timedelta(1)
+lastDayStr = lastDay.strftime('%Y/%m/%d')
+befLastDayStr = (datetime.date.today() -datetime.timedelta(2)).strftime('%Y/%m/%d')
 
 
-# ==== 関数get_value() ====
+# ==== リストの宣言 ====
+serviceNameList     = []
+serviceValueList    = []
+befServiceValueList = []
+
+
+# ==== 関数getValue() ====
 # ※ get_value(サービス名)で昨日までのサービス利用料金を取得する
 #   サービス名が「ALL」の場合は全体の金額を取得する
-def get_value(service_name,check_day):
-    if service_name == 'ALL':
-        get_demesion = [{'Name': 'Currency', 'Value': 'USD'}]
+def getValue(sName,checkDay):
+    if sName == 'ALL':
+        getDemesion = [{'Name': 'Currency', 'Value': 'USD'}]
     else:
-        get_demesion = [{'Name': 'ServiceName', 'Value': service_name },{'Name': 'Currency', 'Value': 'USD'}]
-
-    data = cloudwatch_conn.get_metric_statistics(
-           Namespace='AWS/Billing',
-           MetricName='EstimatedCharges',
-           Period=86400,
-           StartTime=check_day + " 00:00:00",
-           EndTime=check_day + " 23:59:59",
-           Statistics=['Maximum'],
-           Dimensions=get_demesion
+        getDemesion = [{'Name': 'ServiceName', 'Value': sName },{'Name': 'Currency', 'Value': 'USD'}]
+    data = cloudwatchConn.get_metric_statistics(
+           Namespace  = 'AWS/Billing',
+           MetricName = 'EstimatedCharges',
+           Period     = 86400,
+           StartTime  = checkDay + " 00:00:00",
+           EndTime    = checkDay + " 23:59:59",
+           Statistics = ['Maximum'],
+           Dimensions = getDemesion
            )
     for info in data['Datapoints']:
           return info['Maximum']
 
-def get_service_value_list(get_service_list,check_day):
-    service_value_list = []
-    for service_name in get_service_list:
-        s_value = get_value(service_name,check_day)
-        if s_value is None:
-            s_value =0
-        service_value_list.append(s_value)
-    return service_value_list
+
+def getListServiceValue(checkServiceList,checkDay):
+    returnValueList = []
+    for sName in checkServiceList:
+        sValue = getValue(sName,checkDay)
+        if sValue is None:
+            sValue =0
+        returnValueList.append(sValue)
+    return returnValueList
+
 
 # ==== AWSのメトリックのサービスリストを取得する ====
 # もうちょっと良い書き方が無いものか…
-service_list = []
-service_value = []
-bef_service_value = []
-json_value = cloudwatch_conn.list_metrics()
-for attr1 in json_value.get('Metrics'):
+jsonValue = cloudwatchConn.list_metrics()
+for attr1 in jsonValue.get('Metrics'):
     for attr2 in attr1.get('Dimensions'):
         if attr2.get('Name') == "ServiceName":
-             service_list.append(attr2.get('Value'))
-service_list.sort()
+             serviceNameList.append(attr2.get('Value'))
+serviceNameList.sort()
 
 
 # ==== サービス別の金額を取得する ====
-service_value = get_service_value_list(service_list,last_date)
-bef_service_value = get_service_value_list(service_list,bef_last_date)
+serviceValueList    = getListServiceValue(serviceNameList,lastDayStr)
+befServiceValueList = getListServiceValue(serviceNameList,befLastDayStr)
+
 
 # ==== トータルの金額を取得する ====
-last_total_value = get_value('ALL',last_date)
-bef_last_total_value = get_value('ALL',bef_last_date)
-if last_date_data.day == 1:
-    total_before_ratio = last_total_value
+lastDayTotalValue    = getValue('ALL',lastDayStr)
+befLastDayTotalValue = getValue('ALL',befLastDayStr)
+
+if lastDay.day == 1:
+    ratioTotal = lastDayTotalValue
 else:
-    total_before_ratio = last_total_value - bef_last_total_value
+    ratioTotal = lastDayTotalValue - befLastDayTotalValue
 
-# ==== SlackへPostする ====
-SLACK_TEXT='昨日までのAWSの利用料金は *$' + str(last_total_value) + '* (前日比 + *$' + str(total_before_ratio) + '* )' + 'になります'
+# ==== SlackへPostするデータの作成 ====
+slactText   = '昨日までのAWSの利用料金は *$' + str(lastDayTotalValue) + '* (前日比 + *$' + str(ratioTotal) + '* )' + 'になります'
 
-slack=slackweb.Slack(url=SLACK_WEBHOOK)
-attachments=[]
-attachment={'pretext': '各サービス別の利用料金','fields': []}
+slack       = slackweb.Slack(url=slackWebhook)
+attachments = []
+attachment  = {'pretext': '各サービス別の利用料金','fields': []}
 
-for var in range(0, len(service_list)):
-    if last_date_data.day == 1:
-        before_ratio=service_value[var]
+for var in range(0, len(serviceNameList)):
+    if lastDay.day == 1:
+        serviceRatio = serviceValueList[var]
     else:
-        before_ratio=service_value[var] - bef_service_value[var]
-    item={'title': service_list[var] ,'value': ' $' + str(service_value[var]) + ' (前日比 +$' + str(before_ratio) + ') ' ,'short': "true"}
+        serviceRatio = serviceValueList[var] - befServiceValueList[var]
+    item={'title': serviceNameList[var] ,
+          'value': ' $' + str(serviceValueList[var]) + ' (前日比 +$' + str(serviceRatio) + ') ' ,
+          'short': "true"}
     attachment['fields'].append(item)
 
 attachments.append(attachment)
-slack.notify(text=SLACK_TEXT, channel=SLACK_CHANNEL, username=SLACK_USER, icon_emoji=":aws-icon:", attachments=attachments)
+slack.notify( text       = slactText,
+              channel    = slackChannel,
+              username   = slackUser,
+              icon_emoji = ":aws-icon:",
+              attachments=attachments
+            )
