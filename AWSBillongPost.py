@@ -6,7 +6,7 @@ import boto3
 import slackweb
 
 iniFile = ConfigParser.SafeConfigParser()
-iniFile.read('/opt/script/.auth_info')
+iniFile.read(os.path.abspath(os.path.dirname(__file__)) + '/.auth_info')
 
 # ==== AWS認証情報 ====
 region      = "us-east-1"
