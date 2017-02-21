@@ -6,7 +6,7 @@ import boto3
 import slackweb
 
 inifile = ConfigParser.SafeConfigParser()
-inifile.read('/home/sprout/.auth_info')
+inifile.read('/opt/script/.auth_info')
 
 # ==== AWS認証情報 ====
 REGION = "us-east-1"
@@ -42,7 +42,7 @@ def get_value(service_name,check_day):
     if service_name == 'ALL':
         get_demesion = [{'Name': 'Currency', 'Value': 'USD'}]
     else:
-        get_demesion = [{'Name': 'ServiceName', 'Value': service },{'Name': 'Currency', 'Value': 'USD'}]
+        get_demesion = [{'Name': 'ServiceName', 'Value': service_name },{'Name': 'Currency', 'Value': 'USD'}]
 
     data = cloudwatch_conn.get_metric_statistics(
            Namespace='AWS/Billing',
@@ -54,8 +54,16 @@ def get_value(service_name,check_day):
            Dimensions=get_demesion
            )
     for info in data['Datapoints']:
-        return info['Maximum']
+          return info['Maximum']
 
+def get_service_value_list(get_service_list,check_day):
+    service_value_list = []
+    for service_name in get_service_list:
+        s_value = get_value(service_name,check_day)
+        if s_value is None:
+            s_value =0
+        service_value_list.append(s_value)
+    return service_value_list
 
 # ==== AWSのメトリックのサービスリストを取得する ====
 # もうちょっと良い書き方が無いものか…
@@ -71,11 +79,8 @@ service_list.sort()
 
 
 # ==== サービス別の金額を取得する ====
-for service in service_list:
-    service_value.append(get_value(service,last_date))
-
-for service in service_list:
-    bef_service_value.append(get_value(service,bef_last_date))
+service_value = get_service_value_list(service_list,last_date)
+bef_service_value = get_service_value_list(service_list,bef_last_date)
 
 # ==== トータルの金額を取得する ====
 last_total_value = get_value('ALL',last_date)
@@ -94,9 +99,9 @@ attachment={'pretext': '各サービス別の利用料金','fields': []}
 
 for var in range(0, len(service_list)):
     if last_date_data.day == 1:
-      before_ratio=service_value[var]
+        before_ratio=service_value[var]
     else:
-      before_ratio=service_value[var] - bef_service_value[var]
+        before_ratio=service_value[var] - bef_service_value[var]
     item={'title': service_list[var] ,'value': ' $' + str(service_value[var]) + ' (前日比 +$' + str(before_ratio) + ') ' ,'short': "true"}
     attachment['fields'].append(item)
 
