@@ -41,8 +41,8 @@ serviceValueList    = []
 befServiceValueList = []
 
 
-# ==== 関数getValue() ====
-# ※ get_value(サービス名)で昨日までのサービス利用料金を取得する
+# ==== 関数getValue(サービス名,日付) ====
+# ※ getValue(サービス名,日付)で、指定された日付までの利用料金を返す
 #   サービス名が「ALL」の場合は全体の金額を取得する
 def getValue(sName,checkDay):
     if sName == 'ALL':
@@ -61,7 +61,9 @@ def getValue(sName,checkDay):
     for info in data['Datapoints']:
           return info['Maximum']
 
-
+# ==== 関数getListServiceValue(サービスリスト,日付) ====
+# ※ getListServiceValue(サービスリスト,日付)で、指定された日付までの利用料金を返す
+#   返り値はリスト。
 def getListServiceValue(checkServiceList,checkDay):
     returnValueList = []
     for sName in checkServiceList:
